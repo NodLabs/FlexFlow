@@ -79,6 +79,12 @@ option(BUILD_INCEPTION "build inception example" OFF)
 option(BUILD_CANDLE_UNO "build candle uno example" OFF)
 option(BUILD_PCA "build PCA example" OFF)
 option(BUILD_ALL_EXAMPLES "build all examples. Overrides others" ON)
+option(BUILD_DLRM ON)
+
+add_executable(strategy src/runtime/dlrm_strategy_hetero.cc ${FLOW_PB_SRC})
+target_include_directories(strategy PUBLIC ${FLOW_INCLUDE})
+target_link_libraries(strategy ${protobuf_lib_name})
+
 
 if(${BUILD_RESNET} OR ${BUILD_ALL_EXAMPLES})
   add_subdirectory(examples/ResNet)
@@ -102,4 +108,9 @@ endif()
 
 if(${BUILD_CANDLE_UNO} OR ${BUILD_ALL_EXAMPLES})
   add_subdirectory(examples/candle_uno)
+endif()
+
+if(${BUILD_DLRM} OR ${BUILD_ALL_EXAMPLES})
+  set(Legion_USE_HDF5 CACHE BOOL ON)
+  add_subdirectory(examples/DLRM)
 endif()

@@ -117,35 +117,54 @@ void top_level_task(const Task* task,
     label = ff.create_tensor<2>(dims, "", DT_FLOAT);
   }
   // Step 1 create dense_mlp
+  printf("start create mlp 1");
   Tensor x = create_mlp(&ff, dense_input, dlrmConfig.mlp_bot, dlrmConfig.sigmoid_bot);
+  printf("end create mlp 1");
   std::vector<Tensor> ly;
   for (size_t i = 0; i < dlrmConfig.embedding_size.size(); i++) {
     int input_dim = dlrmConfig.embedding_size[i];
     int output_dim = dlrmConfig.sparse_feature_size;
     ly.push_back(create_emb(&ff, sparse_inputs[i], input_dim, output_dim, i));
   }
+  printf("start tensor z");
   Tensor z = interact_features(&ff, x, ly, dlrmConfig.arch_interaction_op);
   Tensor p = create_mlp(&ff, z, dlrmConfig.mlp_top, dlrmConfig.mlp_top.size() - 2);
+  printf("end with tensor p");
   if (dlrmConfig.loss_threshold > 0.0f && dlrmConfig.loss_threshold < 1.0f) {
     // TODO: implement clamp
     assert(false);
   }
+  printf("loss function");
   ff.mse_loss("mse_loss"/*name*/, p, label, "average"/*reduction*/);
   // Use SGD Optimizer
+  printf("optimizer\n");
   ff.optimizer = new SGDOptimizer(&ff, 0.01f);
-  ff.init_layers();
+  printf("data loader start\n");
   // Data Loader
   DataLoader data_loader(ff, dlrmConfig, sparse_inputs, dense_input, label);
 
+    printf("init layers\n");
+      ff.init_layers();
+
   // Warmup iterations
+  if (false) {
+  printf("warmup iterations");
   for (int iter = 0; iter < 1; iter++) {
+	  std::cout << "reset" <<std::endl;
     data_loader.reset();
+    std::cout << "reset metrics" <<std::endl;
     ff.reset_metrics();
+    std::cout << "next batch" << std::endl;
     data_loader.next_batch(ff);
+    std::cout << "forward" << std::endl;
     ff.forward();
     //ff.zero_gradients();
+    std::cout << "backward" << std::endl;
     ff.backward();
+    std::cout << "update" << std::endl;
     ff.update();
+  }
+  printf("end the warm up");
   }
 
   //Start timer
@@ -159,7 +178,6 @@ void top_level_task(const Task* task,
   log_app.print("Num. epochs = %d", ffConfig.epochs);
   log_app.print("Num. iterations/epoch = %d", data_loader.num_samples / ffConfig.batchSize);
   printf("parameters.size() = %lu\n", ff.parameters.size());
-  double ts_start = Realm::Clock::current_time_in_microseconds();
   for (int epoch = 0; epoch < ffConfig.epochs; epoch++) {
     data_loader.reset();
     ff.reset_metrics();
@@ -187,10 +205,6 @@ void top_level_task(const Task* task,
     Future future = runtime->issue_timing_measurement(ctx, timer);
     future.get_void_result();
   }
-  double ts_end = Realm::Clock::current_time_in_microseconds();
-  double run_time = 1e-6 * (ts_end - ts_start);
-  printf("ELAPSED TIME = %.4fs, THROUGHPUT = %.2f samples/s\n", run_time,
-         data_loader.num_samples * ffConfig.epochs / run_time);
 }
 
 void parse_input_args(char **argv, int argc, DLRMConfig& config)
@@ -267,8 +281,9 @@ DataLoader::DataLoader(FFModel& ff,
     num_samples = 256 * 10 * ff.config.workersPerNode * ff.config.numNodes;
     log_app.print("Number of random samples = %d\n", num_samples);
   } else {
+//	  for (int i = 0; i < 10 ; i++) {
     log_app.print("Start loading dataset from %s", dlrm.dataset_path.c_str());
-    hid_t file_id = H5Fopen(dlrm.dataset_path.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+    hid_t file_id = H5Fopen((dlrm.dataset_path).c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
     // X_int
     {
       hsize_t dims[2], maxdims[2];
@@ -278,6 +293,8 @@ DataLoader::DataLoader(FFModel& ff,
       assert(H5Sget_simple_extent_dims(x_int_space_id, dims, maxdims) == 2);
       assert(H5Tget_class(x_int_type_id) == H5T_FLOAT);
       num_samples = dims[0];
+      std::cout << "assert mlp_bot " << dlrm.mlp_bot[0] << std::endl;
+      std::cout << "dims " << dims[1] << std::endl;
       assert(dlrm.mlp_bot[0] == (int)dims[1]);
       H5Tclose(x_int_type_id);
       H5Dclose(x_int_dataset_id);
@@ -313,6 +330,7 @@ DataLoader::DataLoader(FFModel& ff,
     H5Fclose(file_id);
     log_app.print("Finish loading dataset from %s", dlrm.dataset_path.c_str());
     log_app.print("Loaded %d samples", num_samples);
+  //}
   }
   for (size_t i = 0; i < _sparse_inputs.size(); i++) {
     batch_sparse_inputs.push_back(_sparse_inputs[i]);
@@ -396,7 +414,9 @@ void DataLoader::load_entire_dataset(const Task *task,
     for (size_t i = 0; i < rect_label_input.volume(); i++)
       label_input_ptr[i] = std::rand() % 2;
   } else {
-    hid_t file_id = H5Fopen(file_name.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+    //for (int i =0; i < 10; i++){
+//	    std::cout << "reading file " << std::to_string(i) << std::endl;
+    hid_t file_id = H5Fopen((file_name).c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
     // Load X_cat
     {
       log_app.print("Start loading sparse features from "
@@ -405,10 +425,10 @@ void DataLoader::load_entire_dataset(const Task *task,
       hid_t x_cat_dataset_id = H5Dopen2(file_id, "X_cat", H5P_DEFAULT);
       hid_t x_cat_space_id = H5Dget_space(x_cat_dataset_id);
       hid_t x_cat_type_id = H5Dget_type(x_cat_dataset_id);
-      assert(H5Sget_simple_extent_dims(x_cat_space_id, dims, maxdims) == 2);
-      assert(H5Tget_class(x_cat_type_id) == H5T_INTEGER);
-      assert(num_samples == (int)dims[0]);
-      assert(num_sparse_inputs == (int)dims[1]);
+      //assert(H5Sget_simple_extent_dims(x_cat_space_id, dims, maxdims) == 2);
+      //assert(H5Tget_class(x_cat_type_id) == H5T_INTEGER);
+      //assert(num_samples == (int)dims[0]);
+      //assert(num_sparse_inputs == (int)dims[1]);
       H5Dread(x_cat_dataset_id, H5T_NATIVE_LLONG, H5S_ALL, H5S_ALL, H5P_DEFAULT,
               sparse_input_ptr);
       H5Tclose(x_cat_type_id);
@@ -424,10 +444,10 @@ void DataLoader::load_entire_dataset(const Task *task,
       hid_t x_int_dataset_id = H5Dopen2(file_id, "X_int", H5P_DEFAULT);
       hid_t x_int_space_id = H5Dget_space(x_int_dataset_id);
       hid_t x_int_type_id = H5Dget_type(x_int_dataset_id);
-      assert(H5Sget_simple_extent_dims(x_int_space_id, dims, maxdims) == 2);
+      //assert(H5Sget_simple_extent_dims(x_int_space_id, dims, maxdims) == 2);
       assert(H5Tget_class(x_int_type_id) == H5T_FLOAT);
       num_samples = dims[0];
-      assert(num_dense_dims == (int)dims[1]);
+      //assert(num_dense_dims == (int)dims[1]);
       H5Dread(x_int_dataset_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT,
               dense_input_ptr);
       H5Tclose(x_int_type_id);
@@ -444,7 +464,7 @@ void DataLoader::load_entire_dataset(const Task *task,
       hid_t y_space_id = H5Dget_space(y_dataset_id);
       hid_t y_type_id = H5Dget_type(y_dataset_id);
       H5Sget_simple_extent_dims(y_space_id, dims, maxdims);
-      assert(num_samples == (int)dims[0]);
+      //assert(num_samples == (int)dims[0]);
       //assert(dims[1] == 1);
       H5Dread(y_dataset_id, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT,
               label_input_ptr);
@@ -454,6 +474,7 @@ void DataLoader::load_entire_dataset(const Task *task,
       log_app.print("Finish loading labels");
     }
   }
+  //}
 }
 
 void DataLoader::next_batch(FFModel& ff)

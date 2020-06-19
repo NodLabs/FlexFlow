@@ -98,7 +98,7 @@ Linear::Linear(FFModel& model,
                bool use_bias,
                Initializer* kernel_initializer,
                Initializer* bias_initializer)
-: Op(pcname), 
+: Op(pcname, 1), 
   in_channels(in_dim), out_channels(out_dim),
   activation(_activation),
   profiling(model.config.profiling)
@@ -294,15 +294,18 @@ OpMeta* Linear::init_task(const Task *task,
 
 void Linear::init(const FFModel& ff)
 {
+	std::cout << "linear layer" << std::endl;
   ArgumentMap argmap;
   Context ctx = ff.config.lg_ctx;
   Runtime* runtime = ff.config.lg_hlr;
   Rect<2> rect = runtime->get_index_space_domain(ctx, task_is);
   int idx = 0;
+  printf("start setup handlers\n");
   for (PointInRectIterator<2> it(rect); it(); it++) {
     FFHandler handle = ff.handlers[idx++];
     argmap.set_point(*it, TaskArgument(&handle, sizeof(FFHandler)));
   }
+  printf("launcher setup\n");
   IndexLauncher launcher(LINEAR_INIT_TASK_ID, task_is,
                          TaskArgument(this, sizeof(Linear)), argmap,
                          Predicate::TRUE_PRED, false/*must*/, 0/*mapper_id*/,
@@ -311,24 +314,29 @@ void Linear::init(const FFModel& ff)
   //    RegionRequirement(input_lps[0], 0/*projection id*/,
   //                      READ_ONLY, EXCLUSIVE, inputs[0].region));
   //launcher.add_field(0, FID_DATA);
+  printf("requirement 1\n");
   launcher.add_region_requirement(
       RegionRequirement(outputs[0].part, 0/*projection id*/,
                         WRITE_ONLY, EXCLUSIVE, outputs[0].region));
   launcher.add_field(0, FID_DATA);
+  printf("requirement 2\n");
   launcher.add_region_requirement(
       RegionRequirement(weights[0].part, 0/*projection id*/,
                         READ_ONLY, EXCLUSIVE, weights[0].region));
   launcher.add_field(1, FID_DATA);
+  printf("requirement 3\n");
   launcher.add_region_requirement(
       RegionRequirement(weights[1].part, 0/*projection id*/,
                         READ_ONLY, EXCLUSIVE, weights[1].region));
   launcher.add_field(2, FID_DATA);
+  printf("execute\n");
   FutureMap fm = runtime->execute_index_space(ctx, launcher);
   fm.wait_all_results();
   idx = 0;
   for (PointInRectIterator<2> it(rect); it(); it++) {
     meta[idx++] = fm.get_result<OpMeta*>(*it);
   }
+  printf("get result endup\n");
 }
 
 /*
@@ -423,7 +431,7 @@ void Linear::forward(const FFModel& ff)
                          FFConfig::get_hash_id(std::string(name)));
   launcher.add_region_requirement(
       RegionRequirement(input_lps[0], 0/*projection id*/,
-                        READ_ONLY, EXCLUSIVE, inputs[0].region));
+                        WRITE_ONLY, EXCLUSIVE, inputs[0].region));
   launcher.add_field(0, FID_DATA);
   launcher.add_region_requirement(
       RegionRequirement(outputs[0].part, 0/*projection id*/,
@@ -431,11 +439,11 @@ void Linear::forward(const FFModel& ff)
   launcher.add_field(1, FID_DATA);
   launcher.add_region_requirement(
       RegionRequirement(weights[0].part, 0/*projection id*/,
-                        READ_ONLY, EXCLUSIVE, weights[0].region));
+                        WRITE_ONLY, EXCLUSIVE, weights[0].region));
   launcher.add_field(2, FID_DATA);
   launcher.add_region_requirement(
       RegionRequirement(weights[1].part, 0/*projection id*/,
-                        READ_ONLY, EXCLUSIVE, weights[1].region));
+                        WRITE_ONLY, EXCLUSIVE, weights[1].region));
   launcher.add_field(3, FID_DATA);
   runtime->execute_index_space(ctx, launcher);
 }
@@ -515,10 +523,10 @@ void Linear::backward_task(const Task *task,
     cudaEventRecord(t_start);
   }
 #ifndef DISABLE_LEGION_CUDA_HIJACK
-  cudaStream_t stream;
-  checkCUDA(cudaStreamCreate(&stream));
-  checkCUDA(cublasSetStream(m->handle.blas, stream));
-  checkCUDNN(cudnnSetStream(m->handle.dnn, stream));
+  //cudaStream_t stream;
+  //checkCUDA(cudaStreamCreate(&stream));
+  //checkCUDA(cublasSetStream(m->handle.blas, stream));
+  //checkCUDNN(cudnnSetStream(m->handle.dnn, stream));
 #endif
   if (linear->activation == AC_MODE_RELU) {
     reluBackward<<<GET_BLOCKS(acc_output.rect.volume()), CUDA_NUM_THREADS>>>(
@@ -636,7 +644,7 @@ void Linear::backward(const FFModel& ff)
     // regions[2](I): output
     launcher.add_region_requirement(
         RegionRequirement(outputs[0].part, 0/*projection id*/,
-                          READ_ONLY, EXCLUSIVE, outputs[0].region));
+                          READ_WRITE, EXCLUSIVE, outputs[0].region));
     launcher.add_field(2, FID_DATA);
     // regions[3](I/O): output_grad
     launcher.add_region_requirement(

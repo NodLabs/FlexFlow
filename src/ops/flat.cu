@@ -139,7 +139,7 @@ Flat::Flat(FFModel& model,
 
 Flat::Flat(FFModel& model,
            const std::string& pcname)
-: Op(pcname)
+: Op(pcname, 1)
 {
 }
 
@@ -191,6 +191,7 @@ OpMeta* Flat::init_task(const Task *task,
 
 void Flat::init(const FFModel& ff)
 {
+	std::cout << "flat layer" << std::endl;
   ArgumentMap argmap;
   Context ctx = ff.config.lg_ctx;
   Runtime* runtime = ff.config.lg_hlr;

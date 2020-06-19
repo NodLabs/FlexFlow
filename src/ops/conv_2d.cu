@@ -240,7 +240,7 @@ Conv2D::Conv2D(FFModel& model,
                bool use_bias,
                Initializer* kernel_initializer,
                Initializer* bias_initializer)
-: Op(pcname),
+: Op(pcname, 1),
   in_channels(in_dim), out_channels(out_dim),
   kernel_h(_kernel_h), kernel_w(_kernel_w),
   stride_h(_stride_h), stride_w(_stride_w),
@@ -482,6 +482,7 @@ OpMeta* Conv2D::init_task(const Task *task,
 
 void Conv2D::init(const FFModel& ff)
 {
+	std::cout << "conv2d layer" << std::endl;
   ArgumentMap argmap;
   Context ctx = ff.config.lg_ctx;
   Runtime* runtime = ff.config.lg_hlr;
@@ -512,7 +513,7 @@ void Conv2D::init(const FFModel& ff)
                         READ_ONLY, EXCLUSIVE, weights[1].region));
   launcher.add_field(3, FID_DATA);
   launcher.add_region_requirement(
-      RegionRequirement(weights[0].part_grad, 0/*projection id*/,
+      RegionRequirement(weights[1].part_grad, 0/*projection id*/,
                         WRITE_ONLY, EXCLUSIVE, weights[0].region_grad));
   launcher.add_field(4, FID_DATA);
   launcher.add_region_requirement(

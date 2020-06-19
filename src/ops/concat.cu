@@ -204,36 +204,42 @@ OpMeta* Concat::init_task(const Task *task,
 
 void Concat::init(const FFModel& ff)
 {
+	std::cout << "concat layer" << std::endl;
   ArgumentMap argmap;
   Context ctx = ff.config.lg_ctx;
   Runtime* runtime = ff.config.lg_hlr;
-  //Rect<3> rect = runtime->get_index_space_domain(ctx, task_is);
-  //int idx = 0;
-  //for (PointInRectIterator<3> it(rect); it(); it++) {
-  //  FFHandler handler = ff.handlers[idx++];
-  //  argmap.set_point(*it, TaskArgument(&handler, sizeof(FFHandler)));
-  //}
+ //Rect<3> rect = runtime->get_index_space_domain(ctx, task_is);
+ //int idx = 0;
+ // for (PointInRectIterator<3> it(rect); it(); it++) {
+ //   FFHandler handler = ff.handlers[idx++];
+ //   argmap.set_point(*it, TaskArgument(&handler, sizeof(FFHandler)));
+ // }
+  std::cout << "start launcher" << std::endl;
   IndexLauncher launcher(CONCAT_INIT_TASK_ID, task_is,
     TaskArgument(this, sizeof(Concat)), argmap,
     Predicate::TRUE_PRED, false/*must*/, 0/*mapper_id*/,
     FFConfig::get_hash_id(std::string(name)));
- 
+  std::cout << "region requriement 1" <<std::endl;
   launcher.add_region_requirement(
     RegionRequirement(outputs[0].part, 0/*projection id*/,
       WRITE_ONLY, EXCLUSIVE, outputs[0].region));
   launcher.add_field(0, FID_DATA);
+  std::cout << "region requriement 2" <<std::endl;
   for (int i = 0; i < numInputs; i++) {
     launcher.add_region_requirement(
       RegionRequirement(input_lps[i], 0/*projection id*/,
-        READ_ONLY, EXCLUSIVE, inputs[i].region));
+        WRITE_ONLY, EXCLUSIVE, inputs[i].region));
     launcher.add_field(i + 1, FID_DATA);
   }
+  std::cout << "execute" << std::endl;
   FutureMap fm = runtime->execute_index_space(ctx, launcher);
+  std::cout << "execute end"<< std::endl;
   fm.wait_all_results();
   //idx = 0;
   //for (PointInRectIterator<3> it(rect); it(); it++) {
   //  meta[idx++] = fm.get_result<OpMeta*>(*it);
-  //}
+ // }
+  std::cout << "concat ends" << std::endl;
 }
 
 __global__
