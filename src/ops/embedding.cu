@@ -108,7 +108,7 @@ Embedding::Embedding(FFModel& model,
                      int num_entries, int outDim,
                      AggrMode _aggr,
                      Initializer* kernel_initializer)
-: Op(pcname), out_channels(outDim), aggr(_aggr), profiling(model.config.profiling)
+: Op(pcname, 1), out_channels(outDim), aggr(_aggr), profiling(model.config.profiling)
 {
   create_kernel(model, num_entries, kernel_initializer);
 }
@@ -281,7 +281,7 @@ void Embedding::forward(const FFModel& ff)
   // regions[0]: input
   launcher.add_region_requirement(
       RegionRequirement(input_lps[0], 0/*projection*/,
-                        READ_ONLY, EXCLUSIVE, inputs[0].region));
+                        WRITE_ONLY, EXCLUSIVE, inputs[0].region));
   launcher.add_field(0, FID_DATA);
   // regions[1]: output
   launcher.add_region_requirement(
@@ -292,7 +292,7 @@ void Embedding::forward(const FFModel& ff)
   // regions[2]: weight
   launcher.add_region_requirement(
       RegionRequirement(weights[0].part, 0/*projection*/,
-                        READ_ONLY, EXCLUSIVE, weights[0].region));
+                        WRITE_ONLY, EXCLUSIVE, weights[0].region));
   launcher.add_field(2, FID_DATA);
   runtime->execute_index_space(ctx, launcher);
 }
@@ -345,12 +345,12 @@ void Embedding::backward(const FFModel& ff)
   // regions[0]: input
   launcher.add_region_requirement(
       RegionRequirement(input_lps[0], 0/*projection*/,
-                        READ_ONLY, EXCLUSIVE, inputs[0].region));
+                        READ_WRITE, EXCLUSIVE, inputs[0].region));
   launcher.add_field(0, FID_DATA);
   // regions[1]: output_grad
   launcher.add_region_requirement(
       RegionRequirement(outputs[0].part_grad, 0/*projection*/,
-                        READ_ONLY, EXCLUSIVE, outputs[0].region_grad,
+                        READ_WRITE, EXCLUSIVE, outputs[0].region_grad,
                         MAP_TO_ZC_MEMORY));
   launcher.add_field(1, FID_DATA);
   // regions[2]: weight_grad

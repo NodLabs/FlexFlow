@@ -117,35 +117,54 @@ void top_level_task(const Task* task,
     label = ff.create_tensor<2>(dims, "", DT_FLOAT);
   }
   // Step 1 create dense_mlp
+  printf("start create mlp 1");
   Tensor x = create_mlp(&ff, dense_input, dlrmConfig.mlp_bot, dlrmConfig.sigmoid_bot);
+  printf("end create mlp 1");
   std::vector<Tensor> ly;
   for (size_t i = 0; i < dlrmConfig.embedding_size.size(); i++) {
     int input_dim = dlrmConfig.embedding_size[i];
     int output_dim = dlrmConfig.sparse_feature_size;
     ly.push_back(create_emb(&ff, sparse_inputs[i], input_dim, output_dim, i));
   }
+  printf("start tensor z");
   Tensor z = interact_features(&ff, x, ly, dlrmConfig.arch_interaction_op);
   Tensor p = create_mlp(&ff, z, dlrmConfig.mlp_top, dlrmConfig.mlp_top.size() - 2);
+  printf("end with tensor p");
   if (dlrmConfig.loss_threshold > 0.0f && dlrmConfig.loss_threshold < 1.0f) {
     // TODO: implement clamp
     assert(false);
   }
+  printf("loss function");
   ff.mse_loss("mse_loss"/*name*/, p, label, "average"/*reduction*/);
   // Use SGD Optimizer
+  printf("optimizer\n");
   ff.optimizer = new SGDOptimizer(&ff, 0.01f);
-  ff.init_layers();
+  printf("data loader start\n");
   // Data Loader
   DataLoader data_loader(ff, dlrmConfig, sparse_inputs, dense_input, label);
 
+    printf("init layers\n");
+      ff.init_layers();
+
   // Warmup iterations
+  if (false) {
+  printf("warmup iterations");
   for (int iter = 0; iter < 1; iter++) {
+	  std::cout << "reset" <<std::endl;
     data_loader.reset();
+    std::cout << "reset metrics" <<std::endl;
     ff.reset_metrics();
+    std::cout << "next batch" << std::endl;
     data_loader.next_batch(ff);
+    std::cout << "forward" << std::endl;
     ff.forward();
     //ff.zero_gradients();
+    std::cout << "backward" << std::endl;
     ff.backward();
+    std::cout << "update" << std::endl;
     ff.update();
+  }
+  printf("end the warm up");
   }
 
   //Start timer
@@ -159,7 +178,6 @@ void top_level_task(const Task* task,
   log_app.print("Num. epochs = %d", ffConfig.epochs);
   log_app.print("Num. iterations/epoch = %d", data_loader.num_samples / ffConfig.batchSize);
   printf("parameters.size() = %lu\n", ff.parameters.size());
-  double ts_start = Realm::Clock::current_time_in_microseconds();
   for (int epoch = 0; epoch < ffConfig.epochs; epoch++) {
     data_loader.reset();
     ff.reset_metrics();
@@ -187,10 +205,6 @@ void top_level_task(const Task* task,
     Future future = runtime->issue_timing_measurement(ctx, timer);
     future.get_void_result();
   }
-  double ts_end = Realm::Clock::current_time_in_microseconds();
-  double run_time = 1e-6 * (ts_end - ts_start);
-  printf("ELAPSED TIME = %.4fs, THROUGHPUT = %.2f samples/s\n", run_time,
-         data_loader.num_samples * ffConfig.epochs / run_time);
 }
 
 void parse_input_args(char **argv, int argc, DLRMConfig& config)

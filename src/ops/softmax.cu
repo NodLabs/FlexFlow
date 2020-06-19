@@ -101,6 +101,7 @@ OpMeta* Softmax::init_task(const Task *task,
 __host__
 void Softmax::init(const FFModel& ff)
 {
+	std::cout << "softmax layer" << std::endl;
   ArgumentMap argmap;
   Context ctx = ff.config.lg_ctx;
   Runtime* runtime = ff.config.lg_hlr;

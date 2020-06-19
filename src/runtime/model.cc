@@ -135,8 +135,8 @@ Op::Op(const std::string& _name,
   }
 }
 
-Op::Op(const std::string& _name)
-: numInputs(0), numWeights(0), numOutputs(1)
+Op::Op(const std::string& _name, int n)
+: numInputs(n), numWeights(0), numOutputs(1)
 {
   assert(_name.length() < MAX_OPNAME);
   std::strcpy(name, _name.c_str());
@@ -789,9 +789,13 @@ void FFModel::reset_metrics()
 }
 
 void FFModel::init_layers()
-{ 
-  for (size_t i = 0; i < layers.size(); i++)
+{
+	std::cout << "layers:" << layers.size() << std::endl;
+
+  for (size_t i = 0; i < layers.size(); i++) {
+	  std::cout << "start layer " << i << std::endl;
     layers[i]->init(*this);
+  }
 }
 
 void FFModel::forward()
@@ -1248,6 +1252,7 @@ void register_internal_tasks()
     TaskVariantRegistrar registrar(LINEAR_INIT_TASK_ID, "Linear Init");
     registrar.add_constraint(ProcessorConstraint(Processor::TOC_PROC));
     registrar.set_leaf();
+    printf("linear is initialized right here");
     Runtime::preregister_task_variant<OpMeta*, Linear::init_task>(
         registrar, "Linear Init Task");
   }

@@ -124,7 +124,7 @@ ElementBinary::ElementBinary(FFModel& model,
 ElementBinary::ElementBinary(FFModel& model,
                              ElementBinary::OpType _op_type,
                              const std::string& pcname)
-: Op(pcname), op_type(_op_type)
+: Op(pcname, 2), op_type(_op_type)
 {
 }
 
@@ -216,6 +216,7 @@ void ElementBinary::init_task(const Task* task,
 
 void ElementBinary::init(const FFModel& ff)
 {
+	std::cout << "element binary layer" << std::endl;
   ArgumentMap argmap;
   Context ctx = ff.config.lg_ctx;
   Runtime* runtime = ff.config.lg_hlr;
@@ -414,9 +415,9 @@ void ElementBinary::backward_task(const Task *task,
   const float* in2_ptr = helperGetTensorPointerRO<float>(
     regions[2], task->regions[2], FID_DATA, ctx, runtime);
   float* in1_grad_ptr = helperGetTensorPointerRW<float>(
-    regions[3], task->regions[3], FID_DATA, ctx, runtime);
+    regions[1], task->regions[1], FID_DATA, ctx, runtime);
   float* in2_grad_ptr = helperGetTensorPointerRW<float>(
-    regions[4], task->regions[4], FID_DATA, ctx, runtime);
+    regions[2], task->regions[2], FID_DATA, ctx, runtime);
 
   elewise_binary_backward_kernel<<<GET_BLOCKS(out_grad_domain.get_volume()), CUDA_NUM_THREADS>>>(
     out_grad_domain.get_volume(), alpha, alpha, ele->op_type, out_grad_ptr, in1_ptr, in2_ptr,

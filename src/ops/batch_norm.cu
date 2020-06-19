@@ -245,6 +245,7 @@ void BatchNorm::init_para_task(const Task *task,
 __host__
 void BatchNorm::init(const FFModel& ff)
 {
+	std::cout << "batch layers" << std::endl;
   ArgumentMap argmap;
   Context ctx = ff.config.lg_ctx;
   Runtime* runtime = ff.config.lg_hlr;
