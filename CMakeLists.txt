@@ -85,6 +85,9 @@ add_executable(strategy src/runtime/dlrm_strategy_hetero.cc ${FLOW_PB_SRC})
 target_include_directories(strategy PUBLIC ${FLOW_INCLUDE})
 target_link_libraries(strategy ${protobuf_lib_name})
 
+add_executable(strategy src/runtime/dlrm_strategy.cc ${FLOW_PB_SRC})
+target_include_directories(strategy PUBLIC ${FLOW_INCLUDE})
+target_link_libraries(strategy ${protobuf_lib_name})
 
 if(${BUILD_RESNET} OR ${BUILD_ALL_EXAMPLES})
   add_subdirectory(examples/ResNet)
