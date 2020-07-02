@@ -378,9 +378,13 @@ void Linear::forward_task(const Task *task,
     cudaEventRecord(t_start);
   }
 #ifndef DISABLE_LEGION_CUDA_HIJACK
+  std::cout << "create stream" << std::endl;
   cudaStream_t stream;
+    std::cout << "cudaStreamCreate stream" << std::endl;
   checkCUDA(cudaStreamCreate(&stream));
+    std::cout << "cublasSetStream handle blas" << std::endl;
   checkCUDA(cublasSetStream(m->handle.blas, stream));
+    std::cout << "cudnnSetStream handle dnn" << std::endl;
   checkCUDNN(cudnnSetStream(m->handle.dnn, stream));
 #endif
   checkCUDA(cublasSgemm(m->handle.blas, CUBLAS_OP_T, CUBLAS_OP_N,
@@ -431,7 +435,7 @@ void Linear::forward(const FFModel& ff)
                          FFConfig::get_hash_id(std::string(name)));
   launcher.add_region_requirement(
       RegionRequirement(input_lps[0], 0/*projection id*/,
-                        WRITE_ONLY, EXCLUSIVE, inputs[0].region));
+                        READ_ONLY, EXCLUSIVE, inputs[0].region));
   launcher.add_field(0, FID_DATA);
   launcher.add_region_requirement(
       RegionRequirement(outputs[0].part, 0/*projection id*/,
@@ -439,11 +443,11 @@ void Linear::forward(const FFModel& ff)
   launcher.add_field(1, FID_DATA);
   launcher.add_region_requirement(
       RegionRequirement(weights[0].part, 0/*projection id*/,
-                        WRITE_ONLY, EXCLUSIVE, weights[0].region));
+                        READ_ONLY, EXCLUSIVE, weights[0].region));
   launcher.add_field(2, FID_DATA);
   launcher.add_region_requirement(
       RegionRequirement(weights[1].part, 0/*projection id*/,
-                        WRITE_ONLY, EXCLUSIVE, weights[1].region));
+                        READ_ONLY, EXCLUSIVE, weights[1].region));
   launcher.add_field(3, FID_DATA);
   runtime->execute_index_space(ctx, launcher);
 }
@@ -644,7 +648,7 @@ void Linear::backward(const FFModel& ff)
     // regions[2](I): output
     launcher.add_region_requirement(
         RegionRequirement(outputs[0].part, 0/*projection id*/,
-                          READ_WRITE, EXCLUSIVE, outputs[0].region));
+                          READ_ONLY, EXCLUSIVE, outputs[0].region));
     launcher.add_field(2, FID_DATA);
     // regions[3](I/O): output_grad
     launcher.add_region_requirement(

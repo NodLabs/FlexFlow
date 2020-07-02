@@ -225,10 +225,11 @@ void Concat::init(const FFModel& ff)
       WRITE_ONLY, EXCLUSIVE, outputs[0].region));
   launcher.add_field(0, FID_DATA);
   std::cout << "region requriement 2" <<std::endl;
+  std::cout << "imput num: " << numInputs << std::endl;
   for (int i = 0; i < numInputs; i++) {
     launcher.add_region_requirement(
       RegionRequirement(input_lps[i], 0/*projection id*/,
-        WRITE_ONLY, EXCLUSIVE, inputs[i].region));
+        READ_WRITE, EXCLUSIVE, inputs[i].region));
     launcher.add_field(i + 1, FID_DATA);
   }
   std::cout << "execute" << std::endl;

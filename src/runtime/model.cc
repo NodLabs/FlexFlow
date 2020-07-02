@@ -830,9 +830,9 @@ void FFModel::update()
 
 void FFModel::zero_gradients(void)
 {
-  for (int l = layers.size() - 1; l >= 0; l--)
-    layers[l]->zero_grad(*this);
-#ifdef DEADCODE
+//  for (int l = layers.size() - 1; l >= 0; l--)
+//    layers[l]->zero_grad(*this);
+//#ifdef DEADCODE
   ArgumentMap arg_map;
   Context ctx = config.lg_ctx;
   Runtime* runtime = config.lg_hlr;
@@ -850,7 +850,7 @@ void FFModel::zero_gradients(void)
     launcher.add_field(0, FID_DATA);
     runtime->execute_index_space(ctx, launcher);
   }
-#endif
+//#endif
 }
 
 void FFModel::print_layers(int id)

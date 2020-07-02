@@ -98,6 +98,7 @@ void top_level_task(const Task* task,
   ffConfig.lg_ctx = ctx;
   ffConfig.lg_hlr = runtime;
   ffConfig.field_space = runtime->create_field_space(ctx);
+  ffConfig.profiling = false;
   FFModel ff(ffConfig);
 
   std::vector<Tensor> sparse_inputs;
@@ -130,6 +131,7 @@ void top_level_task(const Task* task,
   Tensor z = interact_features(&ff, x, ly, dlrmConfig.arch_interaction_op);
   Tensor p = create_mlp(&ff, z, dlrmConfig.mlp_top, dlrmConfig.mlp_top.size() - 2);
   printf("end with tensor p");
+  std::cout << "dlrmConfig.loss_threshold: " << dlrmConfig.loss_threshold << std::endl;
   if (dlrmConfig.loss_threshold > 0.0f && dlrmConfig.loss_threshold < 1.0f) {
     // TODO: implement clamp
     assert(false);
@@ -138,16 +140,16 @@ void top_level_task(const Task* task,
   ff.mse_loss("mse_loss"/*name*/, p, label, "average"/*reduction*/);
   // Use SGD Optimizer
   printf("optimizer\n");
-  ff.optimizer = new SGDOptimizer(&ff, 0.01f);
+  ff.optimizer = new SGDOptimizer(&ff, 0.00001f);
+      printf("init layers\n");
+            ff.init_layers();
   printf("data loader start\n");
   // Data Loader
   DataLoader data_loader(ff, dlrmConfig, sparse_inputs, dense_input, label);
 
-    printf("init layers\n");
-      ff.init_layers();
 
   // Warmup iterations
-  if (false) {
+  if (true) {
   printf("warmup iterations");
   for (int iter = 0; iter < 1; iter++) {
 	  std::cout << "reset" <<std::endl;
@@ -158,7 +160,7 @@ void top_level_task(const Task* task,
     data_loader.next_batch(ff);
     std::cout << "forward" << std::endl;
     ff.forward();
-    //ff.zero_gradients();
+    ff.zero_gradients();
     std::cout << "backward" << std::endl;
     ff.backward();
     std::cout << "update" << std::endl;
@@ -192,9 +194,9 @@ void top_level_task(const Task* task,
       }
       runtime->begin_trace(ctx, 111/*trace_id*/);
       ff.forward();
-      //ff.zero_gradients();
+      ff.zero_gradients();
       ff.backward();
-      //ff.update();
+      ff.update();
       runtime->end_trace(ctx, 111/*trace_id*/);
     }
   }

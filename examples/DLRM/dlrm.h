@@ -27,7 +27,10 @@ struct DLRMConfig {
     //embedding_size.push_back(4);
     //embedding_size.push_back(4);
     mlp_bot.push_back(13);
-    mlp_bot.push_back(2);
+    mlp_bot.push_back(512);
+    mlp_bot.push_back(256);
+    mlp_bot.push_back(64);
+    mlp_bot.push_back(16);
     mlp_top.push_back(8);
     mlp_top.push_back(2);
   }
