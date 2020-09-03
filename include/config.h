@@ -17,6 +17,8 @@
 #define _FLEXFLOW_CONFIG_H_
 #include <cstring>
 #include "legion.h"
+#include <cudnn.h>
+#include <cublas_v2.h>
 
 // ========================================================
 // Define Runtime Constants
@@ -42,13 +44,21 @@ struct ParallelConfig {
     GPU = 0,
     CPU = 1,
   };
+  int num_parts() const;
   DeviceType device_type;
   int nDims, dim[MAX_DIM];
   int device_ids[MAX_NUM_WORKERS];
 };
 
+struct FFHandler {
+  cudnnHandle_t dnn;
+  cublasHandle_t blas;
+  void *workSpace;
+  size_t workSpaceSize;
+};
+
 bool load_strategies_from_file(const std::string& filename,
-                               std::map<MappingTagID, ParallelConfig>& strategies);
+         std::map<MappingTagID, ParallelConfig>& strategies);
 
 bool save_strategies_to_file(const std::string& filename,
                              const std::map<MappingTagID, ParallelConfig>& strategies);
@@ -73,7 +83,7 @@ public:
                             ParallelConfig& config);
 public:
   int epochs, batchSize, iterations, printFreq;
-  int inputHeight, inputWidth;
+  //int inputHeight, inputWidth;
   int numNodes, loadersPerNode, workersPerNode;
   float learningRate, weightDecay;
   size_t workSpaceSize;
@@ -81,8 +91,14 @@ public:
   Runtime* lg_hlr;
   FieldSpace field_space;
   bool syntheticInput, profiling;
-  std::string datasetPath, strategyFile;
-  // We use MappingTagID has the key since we will pass the tag to the mapper
+  size_t simulator_work_space_size;
+  size_t search_budget;
+  float search_alpha;
+  bool search_overlap_backward_update;
+  std::string dataset_path;
+  std::string import_strategy_file;
+  std::string export_strategy_file;
+  // We use MappingTagID as the key since we will pass the tag to the mapper
   std::map<MappingTagID, ParallelConfig> strategies;
 };
 

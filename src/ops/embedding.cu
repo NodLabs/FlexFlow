@@ -51,7 +51,7 @@ Embedding::Embedding(FFModel& model,
                      int _num_entries, int outDim,
                      AggrMode _aggr,
                      Initializer* _kernel_initializer)
-: Op(model, "Embed_"+std::to_string(_num_entries)+"x"+std::to_string(outDim), _input),
+: Op(model, OP_EMBEDDING, "Embed_"+std::to_string(_num_entries)+"x"+std::to_string(outDim), _input),
   num_entries(_num_entries), out_channels(outDim), aggr(_aggr),
   kernel_initializer(_kernel_initializer), profiling(model.config.profiling)
 {
@@ -59,13 +59,17 @@ Embedding::Embedding(FFModel& model,
   outputs[0].numDim = 2;
   outputs[0].adim[0] = out_channels;
   outputs[0].adim[1] = inputs[0].adim[1];
+  weights[0].numDim = 2;
+  weights[0].adim[0] = num_entries;
+  weights[0].adim[1] = out_channels;
+  numWeights = 1;
 }
 
 Embedding::Embedding(FFModel& model,
                      int _num_entries, int outDim,
                      AggrMode _aggr,
                      Initializer* kernel_initializer)
-: Op(model, "Embed_"+std::to_string(_num_entries)+"x"+std::to_string(outDim), 1),
+: Op(model, OP_EMBEDDING, "Embed_"+std::to_string(_num_entries)+"x"+std::to_string(outDim), 1),
   num_entries(_num_entries), out_channels(outDim), aggr(_aggr), profiling(model.config.profiling)
 {
 }
@@ -94,7 +98,8 @@ void Embedding::create_weights(FFModel& model)
   {
     const int dims[2] = {out_channels, num_entries};
     // Embeddding weights and linear weights can be partitioned in the same way
-    weights[numWeights++] = model.create_linear_weight<2>(this, dims, (IndexSpaceT<2>)task_is, DT_FLOAT, kernel_initializer);
+    weights[0] = model.create_linear_weight<2>(this, dims, (IndexSpaceT<2>)task_is, DT_FLOAT, kernel_initializer);
+    assert(numWeights == 1);
   }
 }
 
@@ -112,6 +117,8 @@ void Embedding::create_output_and_partition(FFModel& model)
   {
     const int dims[2] = {inputs[0].adim[1], out_channels};
     outputs[0] = model.create_tensor<2>(dims, (IndexSpaceT<2>)task_is, DT_FLOAT);
+    outputs[0].owner_op = this;
+    outputs[0].owner_idx = 0;
   }
   // Compute partition bound for input
   Rect<2> input_rect = runtime->get_index_partition_color_space(
@@ -126,14 +133,40 @@ void Embedding::create_output_and_partition(FFModel& model)
   }
 }
 
-//__host__
-//OpMeta* Embedding::init_task(const Task *task,
-//                             const std::vector<PhysicalRegion> &regions,
-//                             Context ctx, Runtime* runtime)
-//{}
+__host__
+OpMeta* Embedding::init_task(const Task *task,
+                             const std::vector<PhysicalRegion> &regions,
+                             Context ctx, Runtime* runtime)
+{
+  return NULL;
+}
 
 void Embedding::init(const FFModel& ff)
-{}
+{
+  ArgumentMap argmap;
+  Context ctx = ff.config.lg_ctx;
+  Runtime* runtime = ff.config.lg_hlr;
+  IndexLauncher launcher(EMBED_INIT_TASK_ID, task_is,
+                         TaskArgument(this, sizeof(Embedding)), argmap,
+                         Predicate::TRUE_PRED, false/*must*/, 0/*mapper_id*/,
+                         FFConfig::get_hash_id(std::string(name)));
+  // regions[0]: input
+  //launcher.add_region_requirement(
+  //  RegionRequirement(input_lps[0], 0/*projection*/,
+  //    READ_ONLY, EXCLUSIVE, inputs[0].region));
+  //launcher.add_field(0, FID_DATA);
+  // regions[1]: output
+  launcher.add_region_requirement(
+    RegionRequirement(outputs[0].part, 0/*projection*/,
+      WRITE_ONLY, EXCLUSIVE, outputs[0].region));
+  launcher.add_field(0, FID_DATA);
+  // regions[2]: weight
+  launcher.add_region_requirement(
+    RegionRequirement(weights[0].part, 0/*projection*/,
+      READ_ONLY, EXCLUSIVE, weights[0].region));
+  launcher.add_field(1, FID_DATA);
+  runtime->execute_index_space(ctx, launcher);
+}
 
 __global__
 void embed_forward(const int64_t* input,
@@ -319,15 +352,11 @@ void Embedding::backward(const FFModel& ff)
   runtime->execute_index_space(ctx, launcher);
 }
 
-/*
-__host__
-Parameter* Embedding::get_parameter(int index)
+bool Embedding::measure_compute_time(Simulator* sim,
+                                     const ParallelConfig& pc,
+                                     float& forward_time,
+                                     float& backward_time)
 {
-  if (index == 0) {
-    return &weights[0];
-  } else {
-    assert(0);
-    return NULL;
-  }
+  //TODO: implement measure_forward
+  return false;
 }
-*/

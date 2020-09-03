@@ -80,7 +80,7 @@ ElementBinary::ElementBinary(FFModel& model,
                              ElementBinary::OpType _op_type,
                              const Tensor& in1,
                              const Tensor& in2)
-: Op(model, "ElementBinary_"+std::to_string(_op_type), in1, in2), op_type(_op_type)
+: Op(model, OP_ELEMENTWISE, "ElementBinary_"+std::to_string(_op_type), in1, in2), op_type(_op_type)
 {
   //TODO: implement broadcast op
   assert(in1.numDim == in2.numDim);
@@ -94,7 +94,7 @@ ElementBinary::ElementBinary(FFModel& model,
 
 ElementBinary::ElementBinary(FFModel& model,
                              ElementBinary::OpType _op_type)
-: Op(model, "ElementBinary_"+std::to_string(_op_type), 2), op_type(_op_type)
+: Op(model, OP_ELEMENTWISE, "ElementBinary_"+std::to_string(_op_type), 2), op_type(_op_type)
 {
 }
 
@@ -175,6 +175,8 @@ void ElementBinary::create_output_and_partition_with_dim(FFModel& model)
   for (int i = 0; i < NDIM; i++)
     dims[i] = inputs[0].adim[NDIM-1-i];
   outputs[0] = model.create_tensor<NDIM>(dims, IndexSpaceT<NDIM>(task_is), DT_FLOAT);
+  outputs[0].owner_op = this;
+  outputs[0].owner_idx = 0;
   Rect<NDIM> input_rect;
   for (int i = 0; i < 2; i++) {
     input_rect = runtime->get_index_partition_color_space(
@@ -439,4 +441,13 @@ void ElementBinary::backward(const FFModel& ff)
                       READ_WRITE, EXCLUSIVE, inputs[1].region_grad));
   launcher.add_field(4, FID_DATA);
   runtime->execute_index_space(ctx, launcher);
+}
+
+bool ElementBinary::measure_compute_time(Simulator* sim,
+                                         const ParallelConfig& pc,
+                                         float& forward_time,
+                                         float& backward_time)
+{
+  //TODO: implement measure_forward
+  return false;
 }

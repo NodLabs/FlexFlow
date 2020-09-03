@@ -92,19 +92,61 @@ void Tensor::detach_raw_ptr(FFConfig &config)
   runtime->detach_external_resource(ctx, physical_region);
 }
 
+bool Tensor::get_input_sub_tensor(const ParallelConfig& pc,
+                                  Tensor& tensor,
+                                  OperatorType type)
+{
+  //TODO: consider reduction dim for conv2d and linear
+  if (pc.nDims != numDim)
+    return false;
+  for (int i = 0; i < numDim; i++)
+    if (adim[i] % pc.dim[i] != 0)
+      return false;
+  tensor.numDim = numDim;
+  for (int i = 0; i < numDim; i++)
+    tensor.adim[i] = adim[i] / pc.dim[i];
+  tensor.data_type = data_type;
+  return true;
+}
+
+bool Tensor::get_output_sub_tensor(const ParallelConfig& pc,
+                                   Tensor& tensor,
+                                   OperatorType type)
+{
+  if (pc.nDims != numDim)
+    return false;
+  for (int i = 0; i < numDim; i++)
+    if (adim[i] % pc.dim[i] != 0)
+      return false;
+  tensor.numDim = numDim;
+  for (int i = 0; i < numDim; i++)
+    tensor.adim[i] = adim[i] / pc.dim[i];
+  tensor.data_type = data_type;
+  return true;
+}
+
+size_t Tensor::get_volume()
+{
+  size_t volume = 1;
+  for (int i = 0; i < numDim; i++)
+    volume *= adim[i];
+  return volume;
+}
+
 Op::Op(FFModel& model,
+       OperatorType _op_type,
        const std::string& _name,
        const Tensor& _input)
-: numInputs(1), numWeights(0), numOutputs(1)
+: op_type(_op_type), numInputs(1), numWeights(0), numOutputs(1)
 {
   std::string pcname = _name + "_" + std::to_string(model.op_global_guid++);
   assert(pcname.length() < MAX_OPNAME);
   std::strcpy(name, pcname.c_str());
   inputs[0] = _input;
-  for (int i = 0; i < numInputs; i++) {
-    trainableInputs[i] = true;
-    resetInputGrads[i] = true;
-  }
+  //for (int i = 0; i < numInputs; i++) {
+  //  trainableInputs[i] = true;
+  //  resetInputGrads[i] = true;
+  //}
   for (int i = 0; i < MAX_NUM_OUTPUTS; i++) {
     outputs[i].owner_op = this;
     outputs[i].owner_idx = i;
@@ -115,20 +157,21 @@ Op::Op(FFModel& model,
 }
 
 Op::Op(FFModel& model,
+       OperatorType _op_type,
        const std::string& _name,
        const Tensor& _input1,
        const Tensor& _input2)
-: numInputs(2), numWeights(0), numOutputs(1)
+: op_type(_op_type), numInputs(2), numWeights(0), numOutputs(1)
 {
   std::string pcname = _name + "_" + std::to_string(model.op_global_guid++);
   assert(pcname.length() < MAX_OPNAME);
   std::strcpy(name, pcname.c_str());
   inputs[0] = _input1;
   inputs[1] = _input2;
-  for (int i = 0; i < numInputs; i++) {
-    trainableInputs[i] = true;
-    resetInputGrads[i] = true;
-  }
+  //for (int i = 0; i < numInputs; i++) {
+  //  trainableInputs[i] = true;
+  //  resetInputGrads[i] = true;
+  //}
   for (int i = 0; i < MAX_NUM_OUTPUTS; i++) {
     outputs[i].owner_op = this;
     outputs[i].owner_idx = i;
@@ -139,9 +182,10 @@ Op::Op(FFModel& model,
 }
 
 Op::Op(FFModel& model,
+       OperatorType _op_type,
        const std::string& _name,
        int n, const Tensor* _inputs)
-: numInputs(n), numWeights(0), numOutputs(1)
+: op_type(_op_type), numInputs(n), numWeights(0), numOutputs(1)
 {
   std::string pcname = _name + "_" + std::to_string(model.op_global_guid++);
   assert(pcname.length() < MAX_OPNAME);
@@ -149,10 +193,10 @@ Op::Op(FFModel& model,
   std::strcpy(name, pcname.c_str());
   for (int i = 0; i < n; i++)
     inputs[i] = _inputs[i];
-  for (int i = 0; i < numInputs; i++) {
-    trainableInputs[i] = true;
-    resetInputGrads[i] = true;
-  }
+  //for (int i = 0; i < numInputs; i++) {
+  //  trainableInputs[i] = true;
+  //  resetInputGrads[i] = true;
+  //}
   for (int i = 0; i < MAX_NUM_OUTPUTS; i++) {
     outputs[i].owner_op = this;
     outputs[i].owner_idx = i;
@@ -163,17 +207,18 @@ Op::Op(FFModel& model,
 }
 
 Op::Op(FFModel& model,
+       OperatorType _op_type,
        const std::string& _name,
        int _numInputs)
-: numInputs(_numInputs), numWeights(0), numOutputs(1)
+: op_type(_op_type), numInputs(_numInputs), numWeights(0), numOutputs(1)
 {
   std::string pcname = _name + "_" + std::to_string(model.op_global_guid++);
   assert(pcname.length() < MAX_OPNAME);
   std::strcpy(name, pcname.c_str());
-  for (int i = 0; i < numInputs; i++) {
-    trainableInputs[i] = true;
-    resetInputGrads[i] = true;
-  }
+  //for (int i = 0; i < numInputs; i++) {
+  //  trainableInputs[i] = true;
+  //  resetInputGrads[i] = true;
+  //}
   for (int i = 0; i < MAX_NUM_OUTPUTS; i++) {
     outputs[i].owner_op = this;
     outputs[i].owner_idx = i;
@@ -204,25 +249,116 @@ void Op::zero_grad(const FFModel& ff)
                           WRITE_ONLY, EXCLUSIVE, weights[i].region_grad));
     launcher.add_field(i, FID_DATA);
   }
-  for (int i = 0; i < numInputs; i++) {
+  for (int i = 0; i < numOutputs; i++) {
     launcher.add_region_requirement(
-        RegionRequirement(input_grad_lps[i], 0/*projection id*/,
-                          WRITE_ONLY, EXCLUSIVE, inputs[i].region_grad));
+        RegionRequirement(outputs[i].part_grad, 0/*projection id*/,
+                          WRITE_ONLY, EXCLUSIVE, outputs[i].region_grad));
+    //LogicalRegion lr = outputs[i].region_grad;
+    //printf("zero_grad:output[%d]: region(%d,%d,%d)\n", i, lr.get_index_space().get_id(), lr.get_field_space().get_id(), lr.get_tree_id());
     launcher.add_field(i + numWeights, FID_DATA);
   }
   runtime->execute_index_space(ctx, launcher);
 }
 
+ParallelConfig Op::get_data_parallel_config(const FFModel& ff) const
+{
+  int num_parts = ff.config.workersPerNode * ff.config.numNodes;
+  ParallelConfig pc;
+  pc.device_type = ParallelConfig::GPU;
+  pc.nDims = outputs[0].numDim;
+  for (int i = 0; i < pc.nDims; i++)
+    pc.dim[i] = i == pc.nDims - 1 ? num_parts : 1;
+  for (int i = 0; i < num_parts; i++)
+    pc.device_ids[i] = i;
+  return pc;
+}
+
+ParallelConfig Op::get_random_parallel_config(const FFModel& ff) const
+{
+  std::vector<int> candidates;
+  int batch_size = outputs[0].adim[outputs[0].numDim-1];
+  for (int i = 1; i <= ff.config.workersPerNode; i++)
+    if (ff.config.workersPerNode % i == 0) {
+      if (batch_size % i != 0)
+        continue;
+      candidates.push_back(i);
+    }
+  for (int i = 1; i <= ff.config.numNodes; i++)
+    if (ff.config.numNodes % i == 0) {
+      if (batch_size % (i * ff.config.workersPerNode) != 0)
+        continue;
+      candidates.push_back(i * ff.config.workersPerNode);
+    }
+  assert(candidates.size() > 0);
+  int idx = std::rand() % candidates.size();
+  int num_parts = candidates[idx];
+  ParallelConfig pc;
+  pc.device_type = ParallelConfig::GPU;
+  pc.nDims = outputs[0].numDim;
+  for (int i = 0; i < pc.nDims; i++)
+    pc.dim[i] = i == pc.nDims - 1 ? num_parts : 1;
+  int total_num_devices = ff.config.workersPerNode * ff.config.numNodes;
+  int start_idx = std::rand() % (total_num_devices - num_parts + 1);
+  for (int i = 0; i < num_parts; i++)
+    pc.device_ids[i] = start_idx + i;
+  return pc;
+}
+
+Domain Op::get_output_tensor_shape(const ParallelConfig& pc,
+                                   int output_idx, int part_idx)
+{
+  assert(output_idx < numOutputs);
+  Domain d;
+  d.dim = outputs[output_idx].numDim;
+  for (int i = 0; i < d.dim; i++) {
+    // Assume an equal partitioning
+    assert(outputs[output_idx].adim[i] % pc.dim[i] == 0);
+    int dim_size = outputs[output_idx].adim[i] / pc.dim[i];
+    d.rect_data[i] = (part_idx % pc.dim[i]) * dim_size;
+    d.rect_data[i + d.dim] = d.rect_data[i] + dim_size - 1;
+    part_idx = part_idx / pc.dim[i];
+  }
+  return d;
+}
+
+Domain Op::get_input_tensor_shape(const ParallelConfig& pc,
+                                  int input_idx, int part_idx)
+{
+  assert(input_idx < numInputs);
+  Domain d;
+  d.dim = inputs[input_idx].numDim;
+  for (int i = 0; i < d.dim; i++) {
+    // Assume an equal partitioning
+    assert(inputs[input_idx].adim[i] % pc.dim[i] == 0);
+    int dim_size = inputs[input_idx].adim[i] / pc.dim[i];
+    d.rect_data[i] = (part_idx % pc.dim[i]) * dim_size;
+    d.rect_data[i + d.dim] = d.rect_data[i] + dim_size - 1;
+    part_idx = part_idx / pc.dim[i];
+  }
+  return d;
+}
+
+Domain Op::get_weight_tensor_shape(const ParallelConfig& pc,
+                                   int weight_idx, int part_idx)
+{
+  // Default data parallel weight replication
+  assert(weight_idx < numWeights);
+  Domain d;
+  d.dim = weights[weight_idx].numDim;
+  for (int i = 0; i < d.dim; i++) {
+    d.rect_data[i] = 0;
+    d.rect_data[i+d.dim] = weights[weight_idx].adim[i] - 1;
+  }
+  return d;
+}
+
 FFModel::FFModel(FFConfig& _config)
-: op_global_guid(100), config(_config)
+: op_global_guid(100), config(_config),
+  optimizer(NULL), loss_op(NULL), metrics_op(NULL)
 {
   Runtime *runtime = config.lg_hlr;
   Context ctx = config.lg_ctx;
   // Load strategy file
-  if (config.strategyFile == "") {
-  } else {
-    load_strategies_from_file(config.strategyFile, config.strategies);
-  }
   for (int i = FFConfig::DataParallelism_1D; i <= FFConfig::DataParallelism_4D; i++) {
     ParallelConfig pc;
     pc.device_type = ParallelConfig::GPU;
@@ -268,78 +404,6 @@ FFModel::FFModel(FFConfig& _config)
   for (PointInRectIterator<2> it(task_rect); it(); it++) {
     handlers[idx++] = fm.get_result<FFHandler>(*it);
   }
-#ifdef DEADCODE
-  // Build logical regions for images
-  Rect<4> part_rect(Point<4>(0, 0, 0, 0),
-      Point<4>(0, 0, 0, config.numNodes * config.workersPerNode-1));
-  IndexSpaceT<4> part_is = runtime->create_index_space(ctx, part_rect);
-  Rect<4> image_rect(Point<4>(0, 0, 0, 0),
-    Point<4>(config.inputWidth-1, config.inputHeight-1, 2, config.batchSize-1));
-  IndexSpaceT<4> image_is = runtime->create_index_space(ctx, image_rect);
-  LogicalRegion image_lr = runtime->create_logical_region(ctx, image_is,
-                               config.field_space);
-  //LogicalRegion image_grad_lr = runtime->create_logical_region(ctx, image_is,
-  //                                  config.field_space);
-  int extentW = config.inputWidth;
-  int extentH = config.inputHeight;
-  int extentC = 3;
-  assert(config.batchSize % (config.numNodes * config.workersPerNode) == 0);
-  int extentN = config.batchSize / (config.numNodes * config.workersPerNode);
-  Rect<4> extent(Point<4>(0, 0, 0, 0),
-                 Point<4>(extentW-1, extentH-1, extentC-1, extentN-1));
-  Transform<4, 4> transform;
-  for (int i = 0; i < 4; i++)
-    for (int j = 0; j < 4; j++)
-      transform[i][j] = 0;
-  transform[0][0] = extentW;
-  transform[1][1] = extentH;
-  transform[2][2] = 3;
-  transform[3][3] = extentN;
-  IndexPartition image_ip =
-    runtime->create_partition_by_restriction(ctx, image_is, part_is, transform, extent);
-  assert(runtime->is_index_partition_disjoint(ctx, image_ip));
-  assert(runtime->is_index_partition_complete(ctx, image_ip));
-  LogicalPartition image_lp = runtime->get_logical_partition(ctx, image_lr, image_ip);
-  //LogicalPartition image_grad_lp =
-  //  runtime->get_logical_partition(ctx, image_grad_lr, image_ip);
-  inputImage.numDim = 4;
-  inputImage.adim[0] = config.inputWidth;
-  inputImage.adim[1] = config.inputHeight;
-  inputImage.adim[2] = 3;
-  inputImage.adim[3] = config.batchSize;
-  inputImage.pdim[0] = extentW;
-  inputImage.pdim[1] = extentH;
-  inputImage.pdim[2] = 3;
-  inputImage.pdim[3] = extentN;
-  inputImage.region = image_lr;
-  inputImage.region_grad = LogicalRegion::NO_REGION;
-  inputImage.part = image_lp;
-  inputImage.part_grad = LogicalPartition::NO_PART;
-  // Build local regions for input raw images
-  int extentHWC = config.inputHeight * config.inputWidth * 3;
-  Rect<2> raw_rect(Point<2>(0, 0), Point<2>(extentHWC-1, config.batchSize-1));
-  IndexSpaceT<2> raw_is = runtime->create_index_space(ctx, raw_rect);
-  LogicalRegion raw_lr =
-      runtime->create_logical_region(ctx, raw_is, config.field_space);
-  Transform<2, 4> raw_trans;
-  Rect<2> raw_ext(Point<2>(0, 0), Point<2>(extentHWC-1, extentN-1));
-  for (int i = 0; i < 2; i++)
-    for (int j = 0; j < 4; j++)
-      raw_trans[i][j] = 0;
-  raw_trans[1][3] = extentN;
-  IndexPartition raw_ip =
-    runtime->create_partition_by_restriction(ctx, raw_is, part_is, raw_trans, raw_ext);
-  assert(runtime->is_index_partition_disjoint(ctx, raw_ip));
-  assert(runtime->is_index_partition_complete(ctx, raw_ip));
-  LogicalPartition raw_lp = runtime->get_logical_partition(ctx, raw_lr, raw_ip);
-  inputRaw.numDim = 2; //Dim [HWC, N]
-  inputRaw.adim[0] = extentHWC;
-  inputRaw.adim[1] = config.batchSize;
-  inputRaw.pdim[0] = extentHWC;
-  inputRaw.pdim[1] = extentN;
-  inputRaw.region = raw_lr;
-  inputRaw.part = raw_lp;
-#endif
 }
 
 template<int NDIM>
@@ -435,8 +499,9 @@ Tensor FFModel::create_tensor(const int dims[],
   tensor.numDim = NDIM;
   for (int i = 0; i < NDIM; i++) {
     tensor.adim[i] = rect.hi[i] - rect.lo[i] + 1;
-    tensor.pdim[i] = extent.hi[i] - extent.lo[i] + 1;
+    //tensor.pdim[i] = extent.hi[i] - extent.lo[i] + 1;
   }
+
   return tensor;
 }
 
@@ -843,8 +908,16 @@ void FFModel::forward()
 
 void FFModel::backward()
 {
-  std::set<LogicalRegion> resetedInputGrads;
+  // Compute metrics
+  Op* final_layer = layers[layers.size()-1];
+  assert(final_layer->numOutputs == 1);
+  metrics_op->compute(this, &(final_layer->outputs[0]), &label_tensor);
+  // Compute the gradients of the final layer wrt loss
+  loss_op->backward(this, &(final_layer->outputs[0]), &label_tensor);
+  // Perform backpropagation
+  // std::set<LogicalRegion> resetedInputGrads;
   for (int l = layers.size() - 1; l >= 0; l--) {
+#ifdef ENABLE_RESNET_INPUT_GRADIENT_OPTIMIZATION
     for (int i = 0; i < layers[l]->numInputs; i++)
       if (resetedInputGrads.find(layers[l]->inputs[i].region) == resetedInputGrads.end()) {
         resetedInputGrads.insert(layers[l]->inputs[i].region);
@@ -853,6 +926,7 @@ void FFModel::backward()
         // So we should not do it again
         layers[l]->resetInputGrads[i] = false;
       }
+#endif
     layers[l]->backward(*this);
   }
 }
@@ -865,8 +939,34 @@ void FFModel::update()
   }
 }
 
-void FFModel::compile()
+void FFModel::compile(Optimizer* _optimizer,
+                      LossType loss_type,
+                      const std::vector<MetricsType>& metrics)
 {
+  optimizer = _optimizer;
+  compile(loss_type, metrics);
+}
+
+void FFModel::compile(LossType loss_type,
+                      const std::vector<MetricsType>& metrics)
+{
+  if (config.import_strategy_file.length() > 0) {
+    load_strategies_from_file(config.import_strategy_file, config.strategies);
+  } else if (config.search_budget > 0) {
+    // Launch the search task
+    Context ctx = config.lg_ctx;
+    Runtime* runtime = config.lg_hlr;
+    FFModel* model = this;
+    TaskLauncher launcher(STRATEGY_SEARCH_TASK_ID,
+        TaskArgument(&model, sizeof(FFModel*)));
+    Future future = runtime->execute_task(ctx, launcher);
+    future.get_void_result();
+  } else {
+    // Do nothing
+  }
+
+  loss_op = new Loss(loss_type);
+  metrics_op = new Metrics(loss_type, metrics);
   for (size_t l = 0; l < layers.size(); l++) {
     Op* op = layers[l];
     for (int i = 0; i < op->numInputs; i++) {
@@ -883,6 +983,72 @@ void FFModel::compile()
     op->create_weights(*this);
     for (int i = 0; i < op->numWeights; i++) {
       parameters.push_back(op->weights[i]);
+    }
+  }
+  Op* final_layer = layers[layers.size()-1];
+  // FIXME: currently assume the final layer has exactly one output
+  assert(final_layer->numOutputs == 1);
+  // FIXME: currently assume the logit is 2D
+  assert(final_layer->outputs[0].numDim == 2);
+  int batch_size = final_layer->outputs[0].adim[1];
+  int channel = final_layer->outputs[0].adim[0];
+  DataType label_type = DT_FLOAT;
+  if (loss_type == LOSS_SPARSE_CATEGORICAL_CROSSENTROPY) {
+    // assign channel = 1 for sparse categorical labels
+    channel = 1;
+    label_type = DT_INT32;
+  }
+  // create label tensor
+  {
+    // Note that FlexFlow's runtim internally reverse the array ordering
+    const int dims[] = {batch_size, channel};
+    label_tensor = create_tensor<2>(dims, "", label_type);
+  }
+  // init optimizer
+  assert(optimizer != NULL);
+  optimizer->init();
+}
+
+void FFModel::rewrite(const std::map<Op*, ParallelConfig>& current,
+                      std::map<Op*, ParallelConfig>& next) const
+{
+  next = current;
+  size_t opId = std::rand() % layers.size();
+  next[layers[opId]] = layers[opId]->get_random_parallel_config(*this);
+}
+
+void FFModel::optimize(Simulator* simulator,
+                       std::map<Op*, ParallelConfig>& best,
+                       size_t budget, float alpha) const
+{
+  // Start from data parallel
+  std::map<Op*, ParallelConfig> current, next;
+  for (size_t l = 0; l < layers.size(); l++) {
+    current[layers[l]] = layers[l]->get_data_parallel_config(*this);
+  }
+  float best_runtime = simulator->simulate_runtime(this, current);
+  best = current;
+  float current_runtime = best_runtime;
+  for (size_t iter = 0; iter < budget; iter++) {
+    rewrite(current, next);
+    float next_runtime = simulator->simulate_runtime(this, next);
+    if (iter % 1 == 0) {
+      printf("iter(%zu) cur(%.2lf) next(%.2lf) best(%.2lf)\n", iter,
+             current_runtime, next_runtime, best_runtime);
+    }
+    float rn = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
+    //float ratio = (next_runtime - current_runtime) / current_runtime;
+    float diff = (next_runtime - current_runtime);
+    if (next_runtime < best_runtime) {
+      best_runtime = next_runtime;
+      best = next;
+    }
+    if (next_runtime < current_runtime) {
+      current = next;
+      current_runtime = next_runtime;
+    } else if (rn < std::exp(-alpha * diff)) {
+      current = next;
+      current_runtime = next_runtime;
     }
   }
 }
@@ -927,32 +1093,23 @@ PerfMetrics FFModel::update_metrics_task(const Task *task,
                                          const std::vector<PhysicalRegion>& regions,
                                          Context ctx, Runtime* runtime)
 {
-  printf("in update_metrics_task\n");
+  //printf("in update_metrics_task\n");
   if (task->futures.size() == 0) {
     // Create an empty future
     PerfMetrics perf;
-    perf.train_loss = 0.0f;
-    perf.train_correct = perf.train_all = 0;
-    perf.test_correct = perf.test_all = 0;
-    perf.val_correct = perf.val_all = 0;
     return perf;
   }
   assert(task->futures.size() > 1);
   PerfMetrics all_metrics = task->futures[0].get_result<PerfMetrics>();
   for (size_t i = 1; i < task->futures.size(); i++) {
     PerfMetrics one_metrics = task->futures[i].get_result<PerfMetrics>();
-    all_metrics.train_loss += one_metrics.train_loss;
-    all_metrics.train_correct += one_metrics.train_correct;
-    all_metrics.train_all += one_metrics.train_all;
-    all_metrics.test_correct += one_metrics.test_correct;
-    all_metrics.test_all += one_metrics.test_all;
-    all_metrics.val_correct += one_metrics.val_correct;
-    all_metrics.val_all += one_metrics.val_all;
+    all_metrics.update(one_metrics);
   }
-  fprintf(stderr, "acc_train_loss: %.4lf train_accuracy: %.2lf%%(%d/%d)\n",
-          all_metrics.train_loss / all_metrics.train_all,
-          all_metrics.train_correct * 100.0f / all_metrics.train_all,
-          all_metrics.train_correct, all_metrics.train_all);
+  all_metrics.print();
+  //fprintf(stderr, "acc_train_loss: %.4lf train_accuracy: %.2lf%%(%d/%d)\n",
+  //        all_metrics.train_loss / all_metrics.train_all,
+  //        all_metrics.train_correct * 100.0f / all_metrics.train_all,
+  //        all_metrics.train_correct, all_metrics.train_all);
   return all_metrics;
 }
 
@@ -1026,8 +1183,6 @@ struct DefaultConfig {
   const static int epochs = 1;
   const static int iterations = 1;
   const static int batchSize = 64;
-  const static int inputHeight = 224;
-  const static int inputWidth = 224;
   const static bool profiling = false;
   constexpr static float learningRate = 0.01f;
   constexpr static float weightDecay = 0.0001f;
@@ -1035,6 +1190,10 @@ struct DefaultConfig {
   const static int numNodes = 1;
   const static int workersPerNode = 0;
   const static int loadersPerNode = 4;
+  const static size_t searchBudget = 0;
+  const static size_t simulatorWorkSpaceSize = (size_t)2 * 1024 * 1024 * 1024; //2GB
+  constexpr static float searchAlpha = 1.0f;
+  const static bool searchOverlapBackwardUpdate = false;
 };
 
 FFConfig::FFConfig()
@@ -1042,8 +1201,6 @@ FFConfig::FFConfig()
   epochs = DefaultConfig::epochs;
   iterations = DefaultConfig::iterations;
   batchSize = DefaultConfig::batchSize;
-  inputHeight = DefaultConfig::inputHeight;
-  inputWidth = DefaultConfig::inputWidth;
   profiling = DefaultConfig::profiling;
   learningRate = DefaultConfig::learningRate;
   weightDecay = DefaultConfig::weightDecay;
@@ -1051,8 +1208,13 @@ FFConfig::FFConfig()
   numNodes = DefaultConfig::numNodes;
   loadersPerNode = DefaultConfig::loadersPerNode;
   workersPerNode = DefaultConfig::workersPerNode;
-  strategyFile = "";
-  datasetPath = "";
+  simulator_work_space_size = DefaultConfig::simulatorWorkSpaceSize;
+  search_budget = DefaultConfig::searchBudget;
+  search_alpha = DefaultConfig::searchAlpha;
+  search_overlap_backward_update = DefaultConfig::searchOverlapBackwardUpdate;
+  import_strategy_file = "";
+  export_strategy_file = "";
+  dataset_path = "";
   syntheticInput = false;
 }
 
@@ -1085,11 +1247,23 @@ void FFConfig::parse_args(char **argv, int argc)
       continue;
     }
     if ((!strcmp(argv[i], "-d")) || (!strcmp(argv[i], "--dataset"))) {
-      datasetPath = std::string(argv[++i]);
+      dataset_path = std::string(argv[++i]);
       continue;
     }
-    if ((!strcmp(argv[i], "-s")) || (!strcmp(argv[i], "--strategy"))) {
-      strategyFile = std::string(argv[++i]);
+    if ((!strcmp(argv[i], "--budget")) || (!strcmp(argv[i], "--search-budget"))) {
+      search_budget =(size_t) atoll(argv[++i]);
+      continue;
+    }
+    if ((!strcmp(argv[i], "--alpha")) || (!strcmp(argv[i], "--search-alpha"))) {
+      search_alpha = atof(argv[++i]);
+      continue;
+    }
+    if ((!strcmp(argv[i], "-import")) || (!strcmp(argv[i], "--import-strategy"))) {
+      import_strategy_file = std::string(argv[++i]);
+      continue;
+    }
+    if ((!strcmp(argv[i], "-export")) || (!strcmp(argv[i], "--export-strategy"))) {
+      export_strategy_file = std::string(argv[++i]);
       continue;
     }
     if (!strcmp(argv[i], "-ll:gpu"))
@@ -1153,6 +1327,13 @@ void register_internal_tasks()
         registrar, "cuda_init_task");
   }
   // ElementUnary task
+  {
+    TaskVariantRegistrar registrar(ELEMENTUNARY_INIT_TASK_ID, "ElementWiseUnary Init");
+    registrar.add_constraint(ProcessorConstraint(Processor::TOC_PROC));
+    registrar.set_leaf();
+    Runtime::preregister_task_variant<OpMeta*, ElementUnary::init_task>(
+        registrar, "ElementWiseUnary Init Task");
+  }
   {
     TaskVariantRegistrar registrar(ELEMENTUNARY_FWD_TASK_ID, "ElementWiseUnary Forward");
     registrar.add_constraint(ProcessorConstraint(Processor::TOC_PROC));
@@ -1225,7 +1406,36 @@ void register_internal_tasks()
   //  Runtime::preregister_task_variant<Conv2D::update_task>(
   //     registrar, "Conv2D Update Task");
   //}
+  // Dropout task
+  {
+    TaskVariantRegistrar registrar(DROPOUT_INIT_TASK_ID, "Dropout Init");
+    registrar.add_constraint(ProcessorConstraint(Processor::TOC_PROC));
+    registrar.set_leaf();
+    Runtime::preregister_task_variant<OpMeta*, Dropout::init_task>(
+        registrar, "Dropout Init Task");
+  }
+  {
+    TaskVariantRegistrar registrar(DROPOUT_FWD_TASK_ID, "Dropout Forward");
+    registrar.add_constraint(ProcessorConstraint(Processor::TOC_PROC));
+    registrar.set_leaf();
+    Runtime::preregister_task_variant<Dropout::forward_task>(
+        registrar, "Dropout Forward Task");
+  }
+  {
+    TaskVariantRegistrar registrar(DROPOUT_BWD_TASK_ID, "Dropout Backward");
+    registrar.add_constraint(ProcessorConstraint(Processor::TOC_PROC));
+    registrar.set_leaf();
+    Runtime::preregister_task_variant<Dropout::backward_task>(
+        registrar, "Dropout Backward Task");
+  }
   // Embedding task GPU
+  {
+    TaskVariantRegistrar registrar(EMBED_INIT_TASK_ID, "Embedding Init");
+    registrar.add_constraint(ProcessorConstraint(Processor::TOC_PROC));
+    registrar.set_leaf();
+    Runtime::preregister_task_variant<OpMeta*, Embedding::init_task>(
+        registrar, "Embedding Init Task");
+  }
   {
     TaskVariantRegistrar registrar(EMBED_FWD_TASK_ID, "Embedding Forward");
     registrar.add_constraint(ProcessorConstraint(Processor::TOC_PROC));
@@ -1377,17 +1587,33 @@ void register_internal_tasks()
     TaskVariantRegistrar registrar(SOFTMAX_BWD_TASK_ID, "softmax_bwd_task");
     registrar.add_constraint(ProcessorConstraint(Processor::TOC_PROC));
     registrar.set_leaf();
-    Runtime::preregister_task_variant<PerfMetrics, Softmax::backward_task>(
+    Runtime::preregister_task_variant<Softmax::backward_task>(
         registrar, "softmax_bwd_task");
   }
-  // MSELoss
+  // compute Loss
   {
-    TaskVariantRegistrar registrar(MSELOSS_BWD_TASK_ID, "MSELoss Backward");
+    TaskVariantRegistrar registrar(LOSS_BWD_TASK_ID, "Loss Backward");
     registrar.add_constraint(ProcessorConstraint(Processor::TOC_PROC));
     registrar.set_leaf();
-    Runtime::preregister_task_variant<PerfMetrics, MSELoss::backward_task>(
+    Runtime::preregister_task_variant<Loss::backward_task>(
+        registrar, "Loss Backward Task");
+  }
+  // compute Metrics
+  {
+    TaskVariantRegistrar registrar(METRICS_COMP_TASK_ID, "MSELoss Backward");
+    registrar.add_constraint(ProcessorConstraint(Processor::TOC_PROC));
+    registrar.set_leaf();
+    Runtime::preregister_task_variant<PerfMetrics, Metrics::compute_task>(
         registrar, "MSELoss Backward Task");
   }
+  // MSELoss
+  //{
+  //  TaskVariantRegistrar registrar(MSELOSS_BWD_TASK_ID, "MSELoss Backward");
+  //  registrar.add_constraint(ProcessorConstraint(Processor::TOC_PROC));
+  //  registrar.set_leaf();
+  //  Runtime::preregister_task_variant<PerfMetrics, MSELoss::backward_task>(
+  //      registrar, "MSELoss Backward Task");
+  //}
   // update metrics
   {
     TaskVariantRegistrar registrar(UPDATE_METRICS_TASK_ID, "Update Metrics");
@@ -1491,6 +1717,15 @@ void register_internal_tasks()
     registrar.set_leaf();
     Runtime::preregister_task_variant<NormInitializer::init_task>(
         registrar, "Normalize Init Task");
+  }
+  // Search
+  {
+    TaskVariantRegistrar registrar(STRATEGY_SEARCH_TASK_ID,
+                                   "Stretegy Search");
+    registrar.add_constraint(ProcessorConstraint(Processor::TOC_PROC));
+    registrar.set_leaf();
+    Runtime::preregister_task_variant<Simulator::strategy_search_task>(
+        registrar, "Stretegy Search Task");
   }
   // DUMMY task
   {

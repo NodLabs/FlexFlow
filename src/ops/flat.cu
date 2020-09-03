@@ -37,7 +37,7 @@ Flat* FFModel::flat()
 
 Flat::Flat(FFModel& model,
            const Tensor& _input)
-: Op(model, "Flat", _input)
+: Op(model, OP_FLAT, "Flat", _input)
 {
   assert(_input.numDim == 4);
   int out_dim = _input.adim[0] * _input.adim[1] * _input.adim[2];
@@ -48,7 +48,7 @@ Flat::Flat(FFModel& model,
 }
 
 Flat::Flat(FFModel& model)
-: Op(model, "Flat", 1)
+: Op(model, OP_FLAT, "Flat", 1)
 {
 }
 
@@ -90,6 +90,8 @@ void Flat::create_output_and_partition(FFModel& model)
   {
     const int dims[2] = {batch_size, out_dim};
     outputs[0] = model.create_tensor<2>(dims, (IndexSpaceT<2>)task_is, DT_FLOAT);
+    outputs[0].owner_op = this;
+    outputs[0].owner_idx = 0;
   }
   model.create_data_parallel_partition_with_diff_dims<4, 2>(
       inputs[0], (IndexSpaceT<2>)task_is, input_lps[0], input_grad_lps[0]);
@@ -120,6 +122,14 @@ void Flat::init(const FFModel& ff)
                          TaskArgument(this, sizeof(Flat)), argmap,
                          Predicate::TRUE_PRED, false/*must*/, 0/*mapper_id*/,
                          FFConfig::get_hash_id(std::string(name)));
+  launcher.add_region_requirement(
+      RegionRequirement(input_lps[0], 0/*projection id*/,
+                        READ_ONLY, EXCLUSIVE, inputs[0].region));
+  launcher.add_field(0, FID_DATA);
+  launcher.add_region_requirement(
+      RegionRequirement(outputs[0].part, 0/*projection id*/,
+                        WRITE_ONLY, EXCLUSIVE, outputs[0].region));
+  launcher.add_field(1, FID_DATA);
   FutureMap fm = runtime->execute_index_space(ctx, launcher);
   fm.wait_all_results();
   idx = 0;
@@ -148,6 +158,7 @@ void Flat::forward_task(const Task *task,
   checkCUDA(cudaMemcpyAsync(acc_output.ptr, acc_input.ptr,
                             acc_input.rect.volume() * sizeof(float),
                             cudaMemcpyDeviceToDevice));
+  checkCUDA(cudaDeviceSynchronize());
 }
 
 void Flat::forward(const FFModel& ff)
@@ -198,6 +209,7 @@ void Flat::backward_task(const Task *task,
   //checkCUDA(cudaMemcpyAsync(acc_input_grad.ptr, acc_output_grad.ptr,
   //                          acc_input_grad.rect.volume() * sizeof(float),
   //                          cudaMemcpyDeviceToDevice));
+  checkCUDA(cudaDeviceSynchronize());
 }
 
 void Flat::backward(const FFModel& ff)
@@ -226,3 +238,33 @@ void Flat::backward(const FFModel& ff)
   runtime->execute_index_space(ctx, launcher);
 }
 
+bool Flat::measure_compute_time(Simulator* sim,
+                                const ParallelConfig& pc,
+                                float& forward_time,
+                                float& backward_time)
+{
+  // Assume flat has no cost
+  forward_time = 0;
+  backward_time = 0;
+  return true;
+}
+
+Domain Flat::get_input_tensor_shape(const ParallelConfig& pc,
+                                  int input_idx, int part_idx)
+{
+  assert(input_idx < numInputs);
+  assert(pc.nDims == 2);
+  // Currently assume data parallelism for Flat
+  assert(pc.dim[0] == 1);
+  Domain d;
+  d.dim = inputs[input_idx].numDim;
+  for (int i = 0; i < d.dim-1; i++) {
+    d.rect_data[i] = 0;
+    d.rect_data[i+d.dim] = inputs[input_idx].adim[i] - 1;
+  }
+  assert(inputs[input_idx].adim[d.dim-1] % pc.num_parts() == 0);
+  int dim_size = inputs[input_idx].adim[d.dim-1] / pc.num_parts();
+  d.rect_data[d.dim-1] = part_idx * dim_size;
+  d.rect_data[2*d.dim-1] = d.rect_data[d.dim-1] + dim_size - 1;
+  return d;
+}

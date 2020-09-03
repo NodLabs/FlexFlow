@@ -15,6 +15,7 @@
 
 #include "strategy.pb.h"
 #include "config.h"
+#include "simulator.h"
 #include <fstream>
 #include <iostream>
 #include <string>

@@ -1,14 +1,31 @@
+# Copyright 2020 Stanford University, Los Alamos National Laboratory
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 import flexflow.core as ff
+from flexflow.core.flexflow_logger import fflogger
 import math
 
 from .base_layer import Layer
-from flexflow.keras.models.input_layer import Tensor, Input
+from .input_layer import Input
+from flexflow.keras.models.tensor import Tensor
 
 class Pooling2D(Layer):
   __slots__ = ['in_channels', 'out_channels', 'kernel_size', 'stride', \
                'padding', 'pool_type']
-  def __init__(self, pool_size, strides, padding="valid", name="pool2d", pool_type=ff.PoolType.POOL_MAX, layer_type="MaxPooling2D"):
-    super(Pooling2D, self).__init__(name, layer_type) 
+  def __init__(self, pool_size, strides, padding="valid", default_name="pool2d", pool_type=ff.PoolType.POOL_MAX, layer_type="MaxPooling2D", **kwargs):
+    super(Pooling2D, self).__init__(default_name, layer_type, **kwargs) 
     
     self.in_channels = 0
     self.out_channels = 0
@@ -61,7 +78,7 @@ class Pooling2D(Layer):
       else:
         padding_w = max(self.kernel_size[1] - (input_w % self.stride[1]), 0)
       self.padding = (padding_h//2, padding_w//2)
-      print("pool2d same padding ", self.padding)
+      fflogger.debug("pool2d same padding %s" %( str(self.padding)))
       
     self.input_shape = (input_b, input_d, input_w, input_h)
     self.in_channels = input_d
@@ -70,8 +87,7 @@ class Pooling2D(Layer):
     output_w = 1 + math.floor((input_w + 2 * self.padding[1] - self.kernel_size[1]) / self.stride[1])
     output_d = self.out_channels
     self.output_shape = (input_b, output_d, output_h, output_w)
-    print("pool2d input ", self.input_shape)
-    print("pool2d output ", self.output_shape)
+    fflogger.debug("pool2d input %s, output %s" %( str(self.input_shape), str(self.output_shape)))
     
   def _verify_inout_tensor_shape(self, input_tensor, output_tensor):
     assert input_tensor.num_dims == 4, "[Conv2D]: check input tensor dims"
@@ -87,9 +103,13 @@ class Pooling2D(Layer):
     self.in_channels = 0
     
 class MaxPooling2D(Pooling2D):
-  def __init__(self, pool_size=(2, 2), strides=None, padding="valid", name="maxpool2d"):
-    super(MaxPooling2D, self).__init__(pool_size, strides, padding, name, ff.PoolType.POOL_MAX, "MaxPooling2D") 
+  def __init__(self, pool_size=(2, 2), strides=None, padding="valid", data_format=None, **kwargs):
+    if data_format == 'channels_last':
+      assert 0, "data_format channels_last is not supported"
+    super(MaxPooling2D, self).__init__(pool_size, strides, padding, "maxpool2d", ff.PoolType.POOL_MAX, "MaxPooling2D", **kwargs) 
     
 class AveragePooling2D(Pooling2D):
-  def __init__(self, pool_size=(2, 2), strides=None, padding="valid", name="maxpool2d"):
-    super(AveragePooling2D, self).__init__(pool_size, strides, padding, name, ff.PoolType.POOL_AVG, "AveragePooling2D") 
+  def __init__(self, pool_size=(2, 2), strides=None, padding="valid", data_format=None, **kwargs):
+    if data_format == 'channels_last':
+      assert 0, "data_format channels_last is not supported"
+    super(AveragePooling2D, self).__init__(pool_size, strides, padding, "averagepool2d", ff.PoolType.POOL_AVG, "AveragePooling2D", **kwargs) 
